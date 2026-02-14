@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   FileText,
@@ -24,7 +24,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { clients } from "@/lib/data"
+import type { Client } from "@/lib/data"
+import { formatCurrency } from "@/lib/data"
+import { fetchCustomers, processOrder } from "@/lib/api"
 
 type ProcessingStep = {
   label: string
@@ -35,7 +37,16 @@ export default function UploadPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [selectedCustomer, setSelectedCustomer] = useState(clients[0].name)
+  const [clients, setClients] = useState<Client[]>([])
+  const [selectedCustomer, setSelectedCustomer] = useState("")
+  const [orderResult, setOrderResult] = useState<{ order_number: string; total_amount: string | number } | null>(null)
+
+  useEffect(() => {
+    fetchCustomers().then((data) => {
+      setClients(data)
+      if (data.length > 0) setSelectedCustomer(data[0].name)
+    }).catch(console.error)
+  }, [])
   const [textFile, setTextFile] = useState<File | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -66,32 +77,52 @@ export default function UploadPage() {
     if (file) setTextFile(file)
   }, [])
 
-  const simulateProcessing = useCallback(async (transcript?: string) => {
+  const sendToBackend = useCallback(async (message: string, sourceType: "voice_message" | "text_file") => {
+    const customer = clients.find((c) => c.name === selectedCustomer)
+    if (!customer) return
+
     setProcessing(true)
     const steps = [
-      "Transcribing audio...",
+      "Sending to AI...",
       "Parsing order details...",
-      "Calculating costs...",
-      "Generating quote...",
+      "Matching inventory...",
+      "Creating order...",
     ]
     const stepsState = steps.map((label) => ({ label, done: false }))
     setProcessingSteps(stepsState)
 
-    for (let i = 0; i < steps.length; i++) {
-      await new Promise((r) => setTimeout(r, 800 + Math.random() * 400))
-      setProcessingSteps((prev) =>
-        prev.map((s, idx) => (idx === i ? { ...s, done: true } : s))
-      )
-    }
-    await new Promise((r) => setTimeout(r, 500))
-    setProcessing(false)
-    setShowSuccess(true)
+    // Animate first step immediately
+    setProcessingSteps((prev) =>
+      prev.map((s, idx) => (idx === 0 ? { ...s, done: true } : s))
+    )
 
-    // Here you would normally send the transcript to your backend
-    if (transcript) {
-      console.log("Processing transcript:", transcript)
+    try {
+      const result = await processOrder({
+        customerId: customer.customerId,
+        sourceType,
+        originalMessage: message,
+      })
+
+      // Animate remaining steps
+      for (let i = 1; i < steps.length; i++) {
+        await new Promise((r) => setTimeout(r, 300))
+        setProcessingSteps((prev) =>
+          prev.map((s, idx) => (idx === i ? { ...s, done: true } : s))
+        )
+      }
+      await new Promise((r) => setTimeout(r, 400))
+
+      setOrderResult({
+        order_number: result.order_number,
+        total_amount: result.total_amount,
+      })
+      setProcessing(false)
+      setShowSuccess(true)
+    } catch (err) {
+      setProcessing(false)
+      alert(`Order processing failed: ${err instanceof Error ? err.message : "Unknown error"}`)
     }
-  }, [])
+  }, [clients, selectedCustomer])
 
   const handleRecordToggle = async () => {
     if (!isRecording) {
@@ -164,44 +195,14 @@ export default function UploadPage() {
   }
 
   const handleProcessRecording = async () => {
-    // Prepare the data to send to the files page
-    const fileData = {
-      type: 'audio' as const,
-      transcript: transcribedText.trim(),
-      audioBlobUrl: recordedAudioBlob ? URL.createObjectURL(recordedAudioBlob) : null,
-      timestamp: new Date().toISOString(),
-      customer: selectedCustomer,
-    }
-    
-    // Store in sessionStorage
-    sessionStorage.setItem('uploadedFile', JSON.stringify(fileData))
-    
-    // Navigate to files page
-    router.push('/files')
+    if (!transcribedText.trim()) return
+    await sendToBackend(transcribedText.trim(), "voice_message")
   }
 
   const handleProcessText = async () => {
     if (!textFile) return
-    
-    // Read the text file content
     const fileContent = await textFile.text()
-    
-    // Prepare text file data
-    const fileData = {
-      type: 'text',
-      fileName: textFile.name,
-      fileSize: textFile.size,
-      fileType: textFile.type,
-      textContent: fileContent,
-      timestamp: new Date().toISOString(),
-      customer: selectedCustomer,
-    }
-    
-    // Store in sessionStorage
-    sessionStorage.setItem('uploadedFile', JSON.stringify(fileData))
-    
-    // Navigate to files page
-    router.push('/files')
+    await sendToBackend(fileContent, "text_file")
   }
 
   return (
@@ -305,7 +306,9 @@ export default function UploadPage() {
                 Order Created!
               </h3>
               <p className="mb-6 text-sm text-muted-foreground">
-                {"Order #ORD-2140214 • $12,450.00"}
+                {orderResult
+                  ? `Order #${orderResult.order_number} • ${formatCurrency(Number(orderResult.total_amount))}`
+                  : "Order created successfully"}
               </p>
               <div className="flex gap-3">
                 <Button
@@ -323,6 +326,7 @@ export default function UploadPage() {
                     setTranscribedText("")
                     setLiveTranscript("")
                     setRecordedAudioBlob(null)
+                    setOrderResult(null)
                   }}
                   className="flex-1 border-coral-200 text-coral-400 hover:bg-coral-50 hover:text-coral-500"
                 >

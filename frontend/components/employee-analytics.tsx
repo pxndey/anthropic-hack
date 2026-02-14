@@ -24,7 +24,7 @@ import {
   CardTitle,
   CardContent,
 } from "@/components/ui/card"
-import { orders } from "@/lib/data"
+import type { Order } from "@/lib/data"
 import { aggregateProductDemand, countOrdersByStatus } from "@/lib/dashboard-utils"
 
 const barChartConfig: ChartConfig = {
@@ -41,9 +41,13 @@ const pieChartConfig: ChartConfig = {
   error: { label: "Error", color: "hsl(0 72% 51%)" },
 }
 
-export function EmployeeAnalytics() {
-  const productData = useMemo(() => aggregateProductDemand(orders).slice(0, 8), [])
-  const statusData = useMemo(() => countOrdersByStatus(orders), [])
+interface EmployeeAnalyticsProps {
+  orders: Order[]
+}
+
+export function EmployeeAnalytics({ orders }: EmployeeAnalyticsProps) {
+  const productData = useMemo(() => aggregateProductDemand(orders).slice(0, 8), [orders])
+  const statusData = useMemo(() => countOrdersByStatus(orders), [orders])
   const totalOrders = useMemo(
     () => statusData.reduce((sum, d) => sum + d.count, 0),
     [statusData]

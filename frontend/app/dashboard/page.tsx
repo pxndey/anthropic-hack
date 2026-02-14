@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Navbar } from "@/components/navbar"
 import { StatsCards } from "@/components/stats-cards"
@@ -10,28 +10,64 @@ import { DashboardViewToggle } from "@/components/dashboard-view-toggle"
 import { ClientSelector } from "@/components/client-selector"
 import { EmployeeAnalytics } from "@/components/employee-analytics"
 import { ClientAnalytics } from "@/components/client-analytics"
-import type { Order } from "@/lib/data"
-import { orders, clients, getOrdersForClient } from "@/lib/data"
+import type { Order, Client } from "@/lib/data"
 import { computeEmployeeStats, computeClientStats } from "@/lib/dashboard-utils"
-import { Heart } from "lucide-react"
+import { fetchOrders, fetchCustomers } from "@/lib/api"
+import { Heart, Loader2 } from "lucide-react"
 
 type ViewMode = "employee" | "client"
 
 export default function DashboardPage() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>("employee")
-  const [selectedClient, setSelectedClient] = useState(clients[0].name)
+  const [clients, setClients] = useState<Client[]>([])
+  const [selectedClient, setSelectedClient] = useState<string>("")
+  const [allOrders, setAllOrders] = useState<Order[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Fetch customers and orders on mount
+  useEffect(() => {
+    async function load() {
+      try {
+        const [customersData, ordersData] = await Promise.all([
+          fetchCustomers(),
+          fetchOrders(),
+        ])
+        setClients(customersData)
+        setAllOrders(ordersData)
+        if (customersData.length > 0) {
+          setSelectedClient(customersData[0].name)
+        }
+      } catch (err) {
+        console.error("Failed to load dashboard data:", err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [])
 
   const clientOrders = useMemo(
-    () => getOrdersForClient(selectedClient),
-    [selectedClient]
+    () => allOrders.filter((o) => o.customer === selectedClient),
+    [allOrders, selectedClient]
   )
 
-  const employeeStats = useMemo(() => computeEmployeeStats(orders), [])
+  const employeeStats = useMemo(() => computeEmployeeStats(allOrders), [allOrders])
   const clientStats = useMemo(
     () => computeClientStats(clientOrders),
     [clientOrders]
   )
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <div className="flex items-center justify-center py-32">
+          <Loader2 className="h-8 w-8 animate-spin text-coral-400" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -58,7 +94,7 @@ export default function DashboardPage() {
 
         {/* Client Selector (client view only) */}
         <AnimatePresence>
-          {viewMode === "client" && (
+          {viewMode === "client" && clients.length > 0 && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
@@ -105,7 +141,7 @@ export default function DashboardPage() {
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                <EmployeeAnalytics />
+                <EmployeeAnalytics orders={allOrders} />
               </motion.div>
             ) : (
               <motion.div
@@ -115,7 +151,7 @@ export default function DashboardPage() {
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                <ClientAnalytics clientName={selectedClient} />
+                <ClientAnalytics orders={clientOrders} />
               </motion.div>
             )}
           </AnimatePresence>
@@ -129,7 +165,7 @@ export default function DashboardPage() {
               : `Orders for ${selectedClient}`}
           </h2>
           <OrdersTable
-            orders={viewMode === "employee" ? orders : clientOrders}
+            orders={viewMode === "employee" ? allOrders : clientOrders}
             onSelectOrder={setSelectedOrder}
           />
         </div>

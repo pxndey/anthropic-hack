@@ -24,7 +24,8 @@ import {
   CardTitle,
   CardContent,
 } from "@/components/ui/card"
-import { getOrdersForClient, formatCurrency } from "@/lib/data"
+import type { Order } from "@/lib/data"
+import { formatCurrency } from "@/lib/data"
 import { countOrdersByStatus } from "@/lib/dashboard-utils"
 
 const pieChartConfig: ChartConfig = {
@@ -42,14 +43,10 @@ const areaChartConfig: ChartConfig = {
 }
 
 interface ClientAnalyticsProps {
-  clientName: string
+  orders: Order[]
 }
 
-export function ClientAnalytics({ clientName }: ClientAnalyticsProps) {
-  const clientOrders = useMemo(
-    () => getOrdersForClient(clientName),
-    [clientName]
-  )
+export function ClientAnalytics({ orders: clientOrders }: ClientAnalyticsProps) {
   const statusData = useMemo(
     () => countOrdersByStatus(clientOrders),
     [clientOrders]

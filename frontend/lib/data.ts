@@ -24,10 +24,13 @@ export interface Order {
   orderHistory?: string
   parsedItems?: OrderItem[]
   originalText?: string
+  customerId?: number
+  orderId?: number
 }
 
 export interface Client {
   id: string
+  customerId: number
   name: string
   email: string
   phone: string
@@ -35,11 +38,11 @@ export interface Client {
 }
 
 export const clients: Client[] = [
-  { id: "acme-manufacturing", name: "Acme Manufacturing", email: "orders@acme-mfg.com", phone: "+1 (415) 555-0142", industry: "Manufacturing" },
-  { id: "buildco", name: "BuildCo", email: "procurement@buildco.io", phone: "+1 (415) 555-0198", industry: "Construction" },
-  { id: "techparts-inc", name: "TechParts Inc", email: "hello@techparts.co", phone: "+1 (650) 555-0177", industry: "Technology" },
-  { id: "global-widgets", name: "Global Widgets", email: "orders@globalwidgets.com", phone: "+1 (212) 555-0134", industry: "Manufacturing" },
-  { id: "megacorp", name: "MegaCorp", email: "supply@megacorp.com", phone: "+1 (310) 555-0156", industry: "Enterprise" },
+  { id: "acme-manufacturing", customerId: 1, name: "Acme Manufacturing", email: "orders@acme-mfg.com", phone: "+1 (415) 555-0142", industry: "Manufacturing" },
+  { id: "buildco", customerId: 2, name: "BuildCo", email: "procurement@buildco.io", phone: "+1 (415) 555-0198", industry: "Construction" },
+  { id: "techparts-inc", customerId: 3, name: "TechParts Inc", email: "hello@techparts.co", phone: "+1 (650) 555-0177", industry: "Technology" },
+  { id: "global-widgets", customerId: 4, name: "Global Widgets", email: "orders@globalwidgets.com", phone: "+1 (212) 555-0134", industry: "Manufacturing" },
+  { id: "megacorp", customerId: 5, name: "MegaCorp", email: "supply@megacorp.com", phone: "+1 (310) 555-0156", industry: "Enterprise" },
 ]
 
 export const orders: Order[] = [
