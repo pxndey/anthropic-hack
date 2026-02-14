@@ -9,8 +9,9 @@ import {
   TrendingUp,
   Heart,
 } from "lucide-react"
+import type { StatItem } from "@/lib/dashboard-utils"
 
-const stats = [
+const defaultStats: StatItem[] = [
   {
     label: "Total Orders",
     value: "1,284",
@@ -45,7 +46,11 @@ const stats = [
   },
 ]
 
-export function StatsCards() {
+interface StatsCardsProps {
+  stats?: StatItem[]
+}
+
+export function StatsCards({ stats = defaultStats }: StatsCardsProps) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {stats.map((stat, i) => (

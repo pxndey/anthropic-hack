@@ -34,14 +34,17 @@ const filterOptions: { label: string; value: OrderStatus | "all" }[] = [
 ]
 
 interface OrdersTableProps {
+  orders?: Order[]
   onSelectOrder: (order: Order) => void
 }
 
-export function OrdersTable({ onSelectOrder }: OrdersTableProps) {
+export function OrdersTable({ orders, onSelectOrder }: OrdersTableProps) {
   const [filter, setFilter] = useState<OrderStatus | "all">("all")
   const [search, setSearch] = useState("")
 
-  const filtered = allOrders.filter((o) => {
+  const sourceOrders = orders ?? allOrders
+
+  const filtered = sourceOrders.filter((o) => {
     if (filter !== "all" && o.status !== filter) return false
     if (
       search &&
