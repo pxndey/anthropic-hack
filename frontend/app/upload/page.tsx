@@ -10,12 +10,21 @@ import {
   Heart,
   Sparkles,
   ArrowRight,
+  User,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useScribe } from "@elevenlabs/react"
 import { Navbar } from "@/components/navbar"
 import { HeartConfetti } from "@/components/heart-confetti"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { clients } from "@/lib/data"
 
 type ProcessingStep = {
   label: string
@@ -26,6 +35,7 @@ export default function UploadPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [selectedCustomer, setSelectedCustomer] = useState(clients[0].name)
   const [textFile, setTextFile] = useState<File | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -159,7 +169,8 @@ export default function UploadPage() {
       type: 'audio' as const,
       transcript: transcribedText.trim(),
       audioBlobUrl: recordedAudioBlob ? URL.createObjectURL(recordedAudioBlob) : null,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      customer: selectedCustomer,
     }
     
     // Store in sessionStorage
@@ -182,7 +193,8 @@ export default function UploadPage() {
       fileSize: textFile.size,
       fileType: textFile.type,
       textContent: fileContent,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      customer: selectedCustomer,
     }
     
     // Store in sessionStorage
@@ -344,6 +356,41 @@ export default function UploadPage() {
             Turn messy texts and voice messages into perfect ERP entries in
             seconds
           </p>
+        </motion.div>
+
+        {/* Customer Selector */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="mb-10 flex items-center justify-center gap-3"
+        >
+          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <User className="h-4 w-4" />
+            <span>Customer:</span>
+          </div>
+          <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
+            <SelectTrigger className="w-64 border-coral-200 focus:ring-coral-400/30">
+              <div className="flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-coral-400/20 to-rose-500/20 text-xs font-bold text-coral-400">
+                  {selectedCustomer.charAt(0)}
+                </div>
+                <SelectValue />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              {clients.map((c) => (
+                <SelectItem key={c.id} value={c.name}>
+                  <div className="flex items-center gap-2">
+                    <span>{c.name}</span>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                      {c.industry}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </motion.div>
 
         {/* Upload Cards */}
