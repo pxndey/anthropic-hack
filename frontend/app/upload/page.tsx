@@ -12,6 +12,7 @@ import {
   ArrowRight,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { useScribe } from "@elevenlabs/react"
 import { Navbar } from "@/components/navbar"
 import { HeartConfetti } from "@/components/heart-confetti"
 import { Button } from "@/components/ui/button"
@@ -24,16 +25,29 @@ type ProcessingStep = {
 export default function UploadPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const audioInputRef = useRef<HTMLInputElement>(null)
 
   const [textFile, setTextFile] = useState<File | null>(null)
-  const [audioFile, setAudioFile] = useState<File | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([])
   const [dragOverText, setDragOverText] = useState(false)
-  const [dragOverAudio, setDragOverAudio] = useState(false)
+  const [transcribedText, setTranscribedText] = useState("")
+  const [liveTranscript, setLiveTranscript] = useState("")
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([])
+  const [recordedAudioBlob, setRecordedAudioBlob] = useState<Blob | null>(null)
+
+  // ElevenLabs Scribe setup
+  const scribe = useScribe({
+    modelId: "scribe_v2_realtime",
+    onPartialTranscript: (data) => {
+      setLiveTranscript(data.text)
+    },
+    onCommittedTranscript: (data) => {
+      setTranscribedText((prev) => prev + " " + data.text)
+    },
+  })
 
   const handleTextDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -42,14 +56,7 @@ export default function UploadPage() {
     if (file) setTextFile(file)
   }, [])
 
-  const handleAudioDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setDragOverAudio(false)
-    const file = e.dataTransfer.files[0]
-    if (file) setAudioFile(file)
-  }, [])
-
-  const simulateProcessing = useCallback(async () => {
+  const simulateProcessing = useCallback(async (transcript?: string) => {
     setProcessing(true)
     const steps = [
       "Transcribing audio...",
@@ -69,13 +76,120 @@ export default function UploadPage() {
     await new Promise((r) => setTimeout(r, 500))
     setProcessing(false)
     setShowSuccess(true)
+
+    // Here you would normally send the transcript to your backend
+    if (transcript) {
+      console.log("Processing transcript:", transcript)
+    }
   }, [])
 
-  const handleRecordToggle = () => {
-    setIsRecording((prev) => !prev)
-    if (isRecording) {
-      setAudioFile(new File([], "recording.wav", { type: "audio/wav" }))
+  const handleRecordToggle = async () => {
+    if (!isRecording) {
+      // Start recording
+      try {
+        // Check if getUserMedia is available
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert("Your browser doesn't support audio recording. Please use Chrome, Edge, or Safari on localhost.")
+          return
+        }
+
+        // Get microphone stream
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        
+        // Create MediaRecorder to save the audio
+        const recorder = new MediaRecorder(stream)
+        const chunks: Blob[] = []
+        
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            chunks.push(e.data)
+          }
+        }
+        
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'audio/webm' })
+          setRecordedAudioBlob(blob)
+          
+          // Stop all tracks to release microphone
+          stream.getTracks().forEach(track => track.stop())
+        }
+        
+        recorder.start()
+        setMediaRecorder(recorder)
+        setAudioChunks(chunks)
+
+        // Fetch token from your server for transcription
+        const response = await fetch("/api/scribe-token")
+        const { token } = await response.json()
+
+        // Connect to ElevenLabs with microphone for real-time transcription
+        await scribe.connect({
+          token,
+          microphone: {
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+        })
+
+        setIsRecording(true)
+        setLiveTranscript("")
+      } catch (error) {
+        console.error("Failed to start recording:", error)
+        alert("Failed to start recording. Please ensure:\n1. You're using localhost (not an IP address)\n2. Microphone permissions are granted\n3. You're using a modern browser (Chrome/Edge/Safari)")
+      }
+    } else {
+      // Stop recording - save the current live transcript to transcribedText
+      if (liveTranscript) {
+        const finalTranscript = transcribedText + " " + liveTranscript
+        setTranscribedText(finalTranscript.trim())
+      }
+      
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop()
+      }
+      scribe.disconnect()
+      setIsRecording(false)
+      setLiveTranscript("") // Clear live transcript after saving
     }
+  }
+
+  const handleProcessRecording = async () => {
+    // Prepare the data to send to the files page
+    const fileData = {
+      type: 'audio' as const,
+      transcript: transcribedText.trim(),
+      audioBlobUrl: recordedAudioBlob ? URL.createObjectURL(recordedAudioBlob) : null,
+      timestamp: new Date().toISOString()
+    }
+    
+    // Store in sessionStorage
+    sessionStorage.setItem('uploadedFile', JSON.stringify(fileData))
+    
+    // Navigate to files page
+    router.push('/files')
+  }
+
+  const handleProcessText = async () => {
+    if (!textFile) return
+    
+    // Read the text file content
+    const fileContent = await textFile.text()
+    
+    // Prepare text file data
+    const fileData = {
+      type: 'text',
+      fileName: textFile.name,
+      fileSize: textFile.size,
+      fileType: textFile.type,
+      textContent: fileContent,
+      timestamp: new Date().toISOString()
+    }
+    
+    // Store in sessionStorage
+    sessionStorage.setItem('uploadedFile', JSON.stringify(fileData))
+    
+    // Navigate to files page
+    router.push('/files')
   }
 
   return (
@@ -179,7 +293,7 @@ export default function UploadPage() {
                 Order Created!
               </h3>
               <p className="mb-6 text-sm text-muted-foreground">
-                {"Order #ORD-2140214 \u2022 $12,450.00"}
+                {"Order #ORD-2140214 • $12,450.00"}
               </p>
               <div className="flex gap-3">
                 <Button
@@ -194,7 +308,9 @@ export default function UploadPage() {
                   onClick={() => {
                     setShowSuccess(false)
                     setTextFile(null)
-                    setAudioFile(null)
+                    setTranscribedText("")
+                    setLiveTranscript("")
+                    setRecordedAudioBlob(null)
                   }}
                   className="flex-1 border-coral-200 text-coral-400 hover:bg-coral-50 hover:text-coral-500"
                 >
@@ -329,7 +445,7 @@ export default function UploadPage() {
               </div>
 
               <Button
-                onClick={simulateProcessing}
+                onClick={handleProcessText}
                 disabled={!textFile || processing}
                 className="w-full bg-gradient-to-r from-coral-400 to-coral-500 text-card hover:from-coral-500 hover:to-coral-600 border-0 shadow-lg shadow-coral-400/25 transition-all hover:shadow-xl hover:shadow-coral-400/30 hover:-translate-y-0.5 disabled:opacity-50 disabled:shadow-none disabled:translate-y-0"
               >
@@ -360,79 +476,49 @@ export default function UploadPage() {
                     Voice Orders
                   </h2>
                   <p className="text-xs text-muted-foreground">
-                    .mp3, .wav, .m4a
+                    Record your order
                   </p>
                 </div>
                 <Sparkles className="ml-auto h-5 w-5 text-rose-300" />
               </div>
 
-              {/* Audio upload zone */}
-              <div
-                onDrop={handleAudioDrop}
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  setDragOverAudio(true)
-                }}
-                onDragLeave={() => setDragOverAudio(false)}
-                onClick={() => audioInputRef.current?.click()}
-                className={`mb-4 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed py-8 transition-all ${
-                  dragOverAudio
-                    ? "border-rose-600 bg-rose-600/5"
-                    : "border-border hover:border-rose-300 hover:bg-muted/50"
-                }`}
-                role="button"
-                tabIndex={0}
-                aria-label="Drop or click to upload audio file"
-              >
-                <input
-                  ref={audioInputRef}
-                  type="file"
-                  accept=".mp3,.wav,.m4a"
-                  className="hidden"
-                  onChange={(e) =>
-                    setAudioFile(e.target.files?.[0] || null)
-                  }
-                />
-                <AnimatePresence mode="wait">
-                  {audioFile ? (
-                    <motion.div
-                      key="file"
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      className="flex flex-col items-center"
-                    >
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ type: "spring", bounce: 0.5 }}
-                        className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100"
-                      >
-                        <Check className="h-5 w-5 text-emerald-600" />
-                      </motion.div>
-                      <p className="text-sm font-medium text-foreground">
-                        {audioFile.name}
-                      </p>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="empty"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="flex flex-col items-center"
-                    >
-                      <Upload className="mb-2 h-6 w-6 text-muted-foreground" />
-                      <p className="text-sm font-medium text-foreground">
-                        Upload Audio File
-                      </p>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+              {/* Live transcription display */}
+              {(isRecording || transcribedText) && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mb-4 rounded-xl border border-rose-200 bg-rose-50/50 p-4"
+                >
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      {isRecording && (
+                        <span className="relative flex h-2 w-2">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75"></span>
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500"></span>
+                        </span>
+                      )}
+                      <span className="text-xs font-medium text-rose-600">
+                        {isRecording ? "Listening..." : "Transcribed"}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-foreground">
+                    {transcribedText}
+                    {liveTranscript && (
+                      <span className="text-muted-foreground italic">
+                        {" "}{liveTranscript}
+                      </span>
+                    )}
+                  </p>
+                </motion.div>
+              )}
 
               {/* Record button */}
               <button
                 onClick={handleRecordToggle}
-                className={`mb-6 flex w-full items-center justify-center gap-3 rounded-xl border-2 py-4 transition-all ${
+                disabled={scribe.isConnected && !isRecording}
+                className={`mb-4 flex w-full items-center justify-center gap-3 rounded-xl border-2 py-4 transition-all ${
                   isRecording
                     ? "border-red-300 bg-red-50"
                     : "border-border hover:border-rose-300"
@@ -453,12 +539,33 @@ export default function UploadPage() {
                 </span>
               </button>
 
+              {/* Clear transcript button */}
+              {transcribedText && !isRecording && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                >
+                  <Button
+                    onClick={() => {
+                      setTranscribedText("")
+                      setLiveTranscript("")
+                      setRecordedAudioBlob(null)
+                    }}
+                    variant="outline"
+                    className="w-full mb-4 border-rose-200 text-rose-400 hover:bg-rose-50 hover:text-rose-500"
+                  >
+                    Clear & Record Again
+                  </Button>
+                </motion.div>
+              )}
+
               <Button
-                onClick={simulateProcessing}
-                disabled={!audioFile || processing}
+                onClick={handleProcessRecording}
+                disabled={!transcribedText || processing || isRecording}
                 className="w-full bg-gradient-to-r from-rose-500 to-rose-600 text-card hover:from-rose-600 hover:to-rose-700 border-0 shadow-lg shadow-rose-600/25 transition-all hover:shadow-xl hover:shadow-rose-600/30 hover:-translate-y-0.5 disabled:opacity-50 disabled:shadow-none disabled:translate-y-0"
               >
-                Transcribe & Process
+                Process Recording
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
