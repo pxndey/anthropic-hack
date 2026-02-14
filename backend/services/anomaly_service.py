@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections import Counter
 from decimal import Decimal
 
 from models import Anomaly, OrderItem
@@ -10,6 +11,7 @@ logger = logging.getLogger(__name__)
 # Thresholds (could later live in a config table per-tenant)
 # ---------------------------------------------------------------------------
 MAX_REASONABLE_QUANTITY = 10_000
+MAX_ORDER_VALUE = Decimal("500_000")
 
 
 def detect_anomalies(
@@ -60,5 +62,73 @@ def detect_anomalies(
                     is_resolved=False,
                 )
             )
+
+        # Rule 3 — Negative or zero quantity
+        if item.quantity <= 0:
+            logger.warning(
+                "Anomaly: item %s has non-positive quantity %d",
+                item.product_id,
+                item.quantity,
+            )
+            anomalies.append(
+                Anomaly(
+                    order_id=order_id,
+                    rule_code="INVALID_QUANTITY",
+                    description=(
+                        f"Quantity {item.quantity} for product {item.product_id} "
+                        f"is zero or negative"
+                    ),
+                    severity_score=Decimal("7.00"),
+                    is_resolved=False,
+                )
+            )
+
+    # Rule 4 — Duplicate product IDs in the same order
+    product_counts = Counter(item.product_id for item in order_items)
+    for product_id, count in product_counts.items():
+        if count > 1:
+            logger.warning(
+                "Anomaly: product %s appears %d times in order %s",
+                product_id,
+                count,
+                order_id,
+            )
+            anomalies.append(
+                Anomaly(
+                    order_id=order_id,
+                    rule_code="DUPLICATE_PRODUCT",
+                    description=(
+                        f"Product {product_id} appears {count} times in the "
+                        f"same order — lines should be consolidated"
+                    ),
+                    severity_score=Decimal("5.00"),
+                    is_resolved=False,
+                )
+            )
+
+    # Rule 5 — High order value
+    order_total = sum(
+        (item.unit_price or Decimal("0")) * item.quantity
+        for item in order_items
+    )
+    if order_total > MAX_ORDER_VALUE:
+        logger.warning(
+            "Anomaly: order %s total %s exceeds threshold %s",
+            order_id,
+            order_total,
+            MAX_ORDER_VALUE,
+        )
+        anomalies.append(
+            Anomaly(
+                order_id=order_id,
+                rule_code="HIGH_ORDER_VALUE",
+                description=(
+                    f"Order total {order_total} exceeds threshold of "
+                    f"{MAX_ORDER_VALUE}"
+                ),
+                severity_score=Decimal("7.50"),
+                is_resolved=False,
+            )
+        )
 
     return anomalies
