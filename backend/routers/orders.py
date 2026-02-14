@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from dependencies import DBSession, TenantID
-from models import Order, OrderStatus
-from schemas import OrderDetailRead, OrderRead
+from models import Anomaly, Order, OrderStatus
+from schemas import AnomalyRead, OrderDetailRead, OrderRead
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -97,3 +97,52 @@ async def confirm_order(
     await session.refresh(order)
 
     return order
+
+
+@router.post(
+    "/{order_id}/anomalies/{anomaly_id}/resolve",
+    response_model=AnomalyRead,
+)
+async def resolve_anomaly(
+    order_id: uuid.UUID,
+    anomaly_id: uuid.UUID,
+    tenant_id: TenantID,
+    session: DBSession,
+) -> Anomaly:
+    """Mark an anomaly as resolved. If all anomalies on a FLAGGED order are resolved, transition to DRAFT."""
+    # Verify order belongs to tenant
+    order_stmt = select(Order).where(Order.id == order_id, Order.tenant_id == tenant_id)
+    order_result = await session.execute(order_stmt)
+    order = order_result.scalar_one_or_none()
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    # Find the anomaly
+    anomaly_stmt = select(Anomaly).where(
+        Anomaly.id == anomaly_id, Anomaly.order_id == order_id
+    )
+    anomaly_result = await session.execute(anomaly_stmt)
+    anomaly = anomaly_result.scalar_one_or_none()
+    if anomaly is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anomaly not found")
+
+    if anomaly.is_resolved:
+        return anomaly
+
+    anomaly.is_resolved = True
+
+    # Check if all anomalies on this order are now resolved
+    unresolved_stmt = select(Anomaly).where(
+        Anomaly.order_id == order_id,
+        Anomaly.is_resolved == False,  # noqa: E712
+        Anomaly.id != anomaly_id,
+    )
+    unresolved_result = await session.execute(unresolved_stmt)
+    remaining = unresolved_result.scalars().all()
+
+    if not remaining and order.status == OrderStatus.FLAGGED:
+        order.status = OrderStatus.DRAFT
+
+    await session.commit()
+    await session.refresh(anomaly)
+    return anomaly

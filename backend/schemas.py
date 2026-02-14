@@ -242,6 +242,13 @@ class OrderDetailRead(OrderRead):
     quotes: list[QuoteRead] = []
 
 
+class InteractionTextRequest(BaseModel):
+    """Accept pre-transcribed text (transcription done on frontend)."""
+    transcript: str
+    source_type: SourceType
+    customer_id: UUID
+
+
 class InteractionUploadResponse(BaseModel):
     interaction_id: UUID
     order_id: UUID
